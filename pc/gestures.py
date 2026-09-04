@@ -27,6 +27,7 @@ class Hands:
     ):
         import mediapipe as mp
         from mediapipe.tasks.python.core import base_options as bo
+        from mediapipe.tasks.python.vision import RunningMode
         from mediapipe.tasks.python.vision import gesture_recognizer as gr
 
         self.open_name = open_name
@@ -48,15 +49,21 @@ class Hands:
                 category_allowlist=[open_name, close_name],
             )
             options = gr.GestureRecognizerOptions(
-                base_options=bo.BaseOptions(model_asset_path=str(model_path)),
-                running_mode=gr.RunningMode.VIDEO,
+                base_options=bo.BaseOptions(
+                    model_asset_path=str(model_path),
+                    delegate=bo.BaseOptions.Delegate.CPU,
+                ),
+                running_mode=RunningMode.VIDEO,
                 num_hands=1,
                 canned_gesture_classifier_options=canned,
             )
         except (TypeError, ImportError, AttributeError):
             options = gr.GestureRecognizerOptions(
-                base_options=bo.BaseOptions(model_asset_path=str(model_path)),
-                running_mode=gr.RunningMode.VIDEO,
+                base_options=bo.BaseOptions(
+                    model_asset_path=str(model_path),
+                    delegate=bo.BaseOptions.Delegate.CPU,
+                ),
+                running_mode=RunningMode.VIDEO,
                 num_hands=1,
             )
         self._recognizer = gr.GestureRecognizer.create_from_options(options)

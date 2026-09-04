@@ -28,7 +28,15 @@ def _box_name(names, cls_id: int) -> str:
 
 
 class Sight:
-    def __init__(self, model_path: Path, classes: list[str], imgsz: int = 320, conf: float = 0.20, device: str = "cpu"):
+    def __init__(
+        self,
+        model_path: Path,
+        classes: list[str],
+        imgsz: int = 320,
+        conf: float = 0.20,
+        device: str = "cpu",
+        visual_prompts: bool = False,
+    ):
         from ultralytics import YOLOE
 
         self.classes = list(classes)
@@ -48,10 +56,16 @@ class Sight:
                     self.model.eval()
                 except Exception:
                     pass
-            try:
-                self.model.set_classes(self.classes)
-            except TypeError:
-                self.model.set_classes(self.classes, self.model.get_text_pe(self.classes))
+            if visual_prompts:
+                from object_visual_pe import CLASS_NAMES, embeddings
+
+                if self.classes != CLASS_NAMES:
+                    raise ValueError(f"visual prompts require classes {CLASS_NAMES}, got {self.classes}")
+                pe = embeddings()
+            else:
+                pe = self.model.get_text_pe(self.classes)
+            self.model.set_classes(self.classes, pe)
+            self.model.predictor = None
         finally:
             os.chdir(prev)
 

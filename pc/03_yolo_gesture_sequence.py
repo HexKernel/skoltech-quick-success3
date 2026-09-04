@@ -31,8 +31,17 @@ def main() -> None:
         imgsz=int(m.get("yolo_imgsz", 320)),
         conf=float(m.get("yolo_conf", 0.20)),
         device=str(m.get("device", "cpu")),
+        visual_prompts=bool(m.get("visual_prompts", False)),
     )
-    hands = Hands(gpath, score_threshold=float(m.get("gesture_score", 0.55)))
+    gcfg = cfg.get("gestures", {})
+    hands = Hands(
+        gpath,
+        score_threshold=float(m.get("gesture_score", 0.55)),
+        open_name=str(gcfg.get("open", "Open_Palm")),
+        close_name=str(gcfg.get("close", "Closed_Fist")),
+        min_streak=int(gcfg.get("min_streak", 3)),
+        sticky_ms=int(gcfg.get("sticky_ms", 250)),
+    )
     cap = open_camera(cfg)
     if not cap.isOpened():
         sys.exit("camera did not open")

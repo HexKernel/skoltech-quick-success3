@@ -20,6 +20,8 @@ ALIASES = {
     "kitchen sponge": "sponge",
     "stone": "stone",
     "rock": "stone",
+    "piece of rock": "stone",
+    "rock fragment": "stone",
     "geological sample": "stone",
 }
 

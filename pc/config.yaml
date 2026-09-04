@@ -12,10 +12,13 @@ models:
   dir: models
   yoloe: yoloe-26n-seg.pt
   gesture: gesture_recognizer.task
-  classes: [egg, sponge, stone]
-  yolo_imgsz: 320
-  yolo_conf: 0.20
-  force_min_conf: 0.35   # below this, treat as unknown (never stone)
+  # Prompts tuned on the three physical demo objects.
+  classes: [sponge, quail egg, piece of rock]
+  visual_prompts: true  # embeddings learned from photos of the actual demo objects
+  yolo_imgsz: 640
+  yolo_conf: 0.01
+  # Weak detections remain UNKNOWN, so a false rock cannot raise grip force.
+  force_min_conf: 0.03
   device: cpu     # cpu | mps | 0
   gesture_score: 0.55
 

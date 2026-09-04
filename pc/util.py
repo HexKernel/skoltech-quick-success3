@@ -42,4 +42,6 @@ def open_camera(cfg: dict):
         cap = cv2.VideoCapture(idx)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(cam.get("width", 640)))
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(cam.get("height", 480)))
+    for _ in range(8):
+        cap.read()
     return cap

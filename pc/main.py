@@ -39,6 +39,7 @@ def main() -> None:
         imgsz=int(m.get("yolo_imgsz", 320)),
         conf=float(m.get("yolo_conf", 0.20)),
         device=str(m.get("device", "cpu")),
+        visual_prompts=bool(m.get("visual_prompts", False)),
     )
     print("loading gestures…")
     hands = Hands(

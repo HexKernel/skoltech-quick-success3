@@ -14,8 +14,24 @@ COLORS = {
     "egg": (0, 220, 255),
     "sponge": (0, 165, 255),
     "stone": (180, 180, 180),
+    "person": (80, 220, 80),
     "unknown": (200, 200, 200),
 }
+
+
+def _color(name: str) -> tuple[int, int, int]:
+    key = (name or "").strip().lower()
+    if key in COLORS:
+        return COLORS[key]
+    return COLORS.get(canonical_class(name), COLORS["unknown"])
+
+
+def draw_box(vis: np.ndarray, det: Detection) -> None:
+    x1, y1, x2, y2 = (int(v) for v in det.xyxy)
+    color = _color(det.name)
+    cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+    label = f"{det.name} {det.conf:.2f}"
+    cv2.putText(vis, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
 
 def draw(
@@ -26,15 +42,15 @@ def draw(
     cls: str,
     fsr_max: int,
     status: GripperStatus,
+    dets: Optional[list[Detection]] = None,
+    hint: Optional[str] = None,
 ) -> np.ndarray:
     vis = frame.copy()
     h, w = vis.shape[:2]
-    if det is not None:
-        x1, y1, x2, y2 = (int(v) for v in det.xyxy)
-        color = COLORS.get(canonical_class(det.name), COLORS["unknown"])
-        cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
-        label = f"{det.name} {det.conf:.2f}"
-        cv2.putText(vis, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    boxes = dets if dets is not None else ([det] if det is not None else [])
+    for box in boxes:
+        if box is not None:
+            draw_box(vis, box)
 
     panel_w = 280
     overlay = vis.copy()
@@ -63,6 +79,6 @@ def draw(
     if fill > 0:
         cv2.rectangle(vis, (bar_x + 1, bar_y + 1), (bar_x + 1 + fill, bar_y + bar_h - 1), col, -1)
     y = bar_y + 48
-    hint = "palm=OPEN  fist=CLOSE  o/c  space=STOP  q"
+    hint = hint or "palm=OPEN  fist=CLOSE  o/c  space=STOP  q"
     cv2.putText(vis, hint, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 180, 180), 1)
     return vis
