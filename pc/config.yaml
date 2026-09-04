@@ -1,0 +1,46 @@
+# Laptop-side software for the QS force-sensitive gripper workshop.
+# Hardware (ESP32 + Dynamixel + FSR) talks over USB serial.
+
+camera:
+  index: 0
+  width: 640
+  height: 480
+  # Windows: try CAP_DSHOW if the camera does not open
+  backend: auto   # auto | dshow | avfoundation
+
+models:
+  dir: models
+  yoloe: yoloe-26n-seg.pt
+  gesture: gesture_recognizer.task
+  classes: [egg, sponge, stone]
+  yolo_imgsz: 320
+  yolo_conf: 0.20
+  device: cpu     # cpu | mps | 0
+  gesture_score: 0.55
+
+serial:
+  # ESP32 DevKit V1 (CP2102): /dev/cu.SLAB_USBtoUART or /dev/cu.usbserial-... / COM3
+  port: auto
+  baud: 115200
+  # mock=true: no hardware, HUD still works (FSR ramps on CLOSE)
+  mock: true
+
+force:
+  # FSR ADC thresholds (ESP32 12-bit: 0..4095). Calibrate with pc/calibrate_fsr.py
+  egg: 700        # fragile — stop early
+  sponge: 1600    # soft / compliant
+  stone: 2800     # rigid
+  unknown: 650    # conservative if YOLO is unsure
+
+gestures:
+  open: Open_Palm
+  close: Closed_Fist
+  sticky_ms: 250
+  min_streak: 3
+
+keys:
+  # Keyboard fallback while gestures are being debugged
+  open: o
+  close: c
+  stop: space
+  quit: q

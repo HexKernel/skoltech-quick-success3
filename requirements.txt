@@ -1,0 +1,7 @@
+# Laptop stack — QS Force-sensitive Robotic Gripper workshop
+opencv-python>=4.8
+mediapipe>=0.10.14
+ultralytics>=8.4.0
+pyserial>=3.5
+PyYAML>=6.0
+numpy>=1.26
