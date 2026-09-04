@@ -16,10 +16,15 @@ def main() -> None:
     if not cap.isOpened():
         sys.exit("camera did not open — close Zoom/Teams, try camera.index 1, on Windows set backend: dshow")
     print("camera ok — press Q")
+    misses = 0
     while True:
         ok, frame = cap.read()
         if not ok:
-            sys.exit("camera read failed")
+            misses += 1
+            if misses > 30:
+                sys.exit("camera read failed — try camera.index 1 or backend: dshow")
+            continue
+        misses = 0
         cv2.imshow("Camera", frame)
         if (cv2.waitKey(1) & 0xFF) in (ord("q"), ord("Q")):
             break

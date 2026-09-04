@@ -36,18 +36,40 @@ class GripperStatus:
 
 
 def guess_port() -> Optional[str]:
-    # ESP32 DevKit V1 typically uses a CP2102 USB-UART.
+    try:
+        from serial.tools import list_ports
+
+        scored: list[tuple[int, str]] = []
+        for p in list_ports.comports():
+            blob = f"{p.device} {p.description} {p.manufacturer or ''}".lower()
+            score = 0
+            if "cp210" in blob or "silicon" in blob or "slab" in blob:
+                score = 3
+            elif "ch340" in blob or "wch" in blob or "usb-serial" in blob:
+                score = 2
+            elif "gripper" in blob:
+                score = 2
+            elif "usb" in blob or "uart" in blob or "esp" in blob:
+                score = 1
+            if score:
+                scored.append((score, p.device))
+        if scored:
+            scored.sort(reverse=True)
+            return scored[0][1]
+    except Exception:
+        pass
     if sys.platform == "darwin":
         cands = (
-            glob.glob("/dev/cu.SLAB_USBtoUART*")
+            glob.glob("/dev/cu.GRIPPER*")
+            + glob.glob("/dev/cu.SLAB_USBtoUART*")
             + glob.glob("/dev/cu.usbserial*")
             + glob.glob("/dev/cu.wchusbserial*")
             + glob.glob("/dev/cu.usbmodem*")
         )
-    elif sys.platform.startswith("win"):
-        return "COM3"
-    else:
-        cands = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
+        return cands[0] if cands else None
+    if sys.platform.startswith("win"):
+        return None
+    cands = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
     return cands[0] if cands else None
 
 
@@ -55,11 +77,17 @@ class SerialGripper:
     def __init__(self, port: str, baud: int = 115200, timeout: float = 0.05):
         import serial
 
-        self.status = GripperStatus(connected=True)
+        self.status = GripperStatus(connected=False)
         self._ser = serial.Serial(port, baud, timeout=timeout)
         time.sleep(2.0)  # ESP32 reset on open
         self._ser.reset_input_buffer()
         self.ping()
+        for _ in range(25):
+            self.pump()
+            if self.status.connected:
+                break
+            time.sleep(0.04)
+        self.status.connected = True  # port is open even if PONG was missed
 
     def close_port(self) -> None:
         try:
@@ -69,14 +97,22 @@ class SerialGripper:
         self.status.connected = False
 
     def _send(self, line: str) -> None:
-        self._ser.write((line.strip() + "\n").encode("ascii", errors="ignore"))
+        try:
+            self._ser.write((line.strip() + "\n").encode("ascii", errors="ignore"))
+        except Exception as exc:
+            print(f"serial write failed: {exc}")
+            self.status.connected = False
 
     def pump(self) -> GripperStatus:
-        while self._ser.in_waiting:
-            raw = self._ser.readline().decode("ascii", errors="ignore").strip()
-            if not raw:
-                continue
-            self._parse(raw)
+        try:
+            while self._ser.in_waiting:
+                raw = self._ser.readline().decode("ascii", errors="ignore").strip()
+                if not raw:
+                    continue
+                self._parse(raw)
+        except Exception as exc:
+            print(f"serial read failed: {exc}")
+            self.status.connected = False
         return self.status
 
     def _parse(self, line: str) -> None:
@@ -95,6 +131,8 @@ class SerialGripper:
                 self.status.state = st
         elif cmd == "PONG":
             self.status.connected = True
+        elif cmd == "ERR":
+            print(f"esp32 {line}")
 
     def open_gripper(self) -> None:
         self._send("OPEN")
@@ -117,6 +155,7 @@ class MockGripper:
         self._max = 1000
         self._closing = False
         self._opening = False
+        self._open_t = 0
 
     def close_port(self) -> None:
         return
@@ -131,7 +170,8 @@ class MockGripper:
                 self.status.state = "CLOSING"
         elif self._opening:
             self.status.fsr = max(0, self.status.fsr - 50)
-            if self.status.fsr <= 0:
+            self._open_t += 1
+            if self.status.fsr <= 0 or self._open_t > 12:
                 self.status.state = "IDLE"
                 self._opening = False
             else:
@@ -141,6 +181,7 @@ class MockGripper:
     def open_gripper(self) -> None:
         self._opening = True
         self._closing = False
+        self._open_t = 0
         self.status.state = "OPENING"
 
     def close_gripper(self, fsr_max: int) -> None:
@@ -158,16 +199,26 @@ class MockGripper:
         return
 
 
-def connect(cfg: dict):
+def connect(cfg: dict, fallback_mock: bool = True):
     serial_cfg = cfg.get("serial", {})
     if serial_cfg.get("mock", True):
+        if not fallback_mock:
+            raise SystemExit("serial.mock=true — set mock: false and plug in the ESP32")
         print("serial: MOCK (set serial.mock=false and serial.port when ESP32 is plugged in)")
         return MockGripper()
     port = serial_cfg.get("port", "auto")
     if not port or port == "auto":
         port = guess_port()
     if not port:
+        if not fallback_mock:
+            raise SystemExit("no serial port found")
         print("serial: no port found, falling back to MOCK")
         return MockGripper()
     print(f"serial: opening {port}")
-    return SerialGripper(port, int(serial_cfg.get("baud", 115200)))
+    try:
+        return SerialGripper(port, int(serial_cfg.get("baud", 115200)))
+    except Exception as exc:
+        if not fallback_mock:
+            raise SystemExit(f"serial open failed: {exc}") from exc
+        print(f"serial: open failed ({exc}), falling back to MOCK")
+        return MockGripper()

@@ -15,7 +15,7 @@ from util import load_config
 def main() -> None:
     cfg = load_config()
     cfg.setdefault("serial", {})["mock"] = False
-    grip = connect(cfg)
+    grip = connect(cfg, fallback_mock=False)
     print("squeeze the FSR — Ctrl+C to stop")
     try:
         while True:

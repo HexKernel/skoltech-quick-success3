@@ -15,11 +15,13 @@ models:
   classes: [egg, sponge, stone]
   yolo_imgsz: 320
   yolo_conf: 0.20
+  force_min_conf: 0.35   # below this, treat as unknown (never stone)
   device: cpu     # cpu | mps | 0
   gesture_score: 0.55
 
 serial:
-  # ESP32 DevKit V1 (CP2102): /dev/cu.SLAB_USBtoUART or /dev/cu.usbserial-... / COM3
+  # usb cable (CP2102) or Classic Bluetooth SPP name GRIPPER_TEST
+  # after pairing: /dev/cu.GRIPPER_TEST  /  /dev/rfcomm0  /  COMx
   port: auto
   baud: 115200
   # mock=true: no hardware, HUD still works (FSR ramps on CLOSE)

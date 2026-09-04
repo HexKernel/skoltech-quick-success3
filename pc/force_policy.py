@@ -3,6 +3,8 @@
 The operator only says OPEN / CLOSE. Max force is chosen from what the
 camera sees. Unknown or low-confidence detections use the conservative
 `unknown` limit so an egg is never treated as a stone.
+
+RANK is used to refuse raising the cap mid-grasp.
 """
 from __future__ import annotations
 
@@ -21,6 +23,8 @@ ALIASES = {
     "geological sample": "stone",
 }
 
+RANK = {"unknown": 0, "egg": 1, "sponge": 2, "stone": 3}
+
 
 def canonical_class(name: Optional[str]) -> str:
     if not name:
@@ -29,9 +33,16 @@ def canonical_class(name: Optional[str]) -> str:
     return ALIASES.get(key, key if key in ("egg", "sponge", "stone") else "unknown")
 
 
-def fsr_limit(object_class: Optional[str], force_cfg: dict, conf: float = 1.0, min_conf: float = 0.20) -> tuple[str, int]:
+def fsr_limit(
+    object_class: Optional[str],
+    force_cfg: dict,
+    conf: float = 1.0,
+    min_conf: float = 0.20,
+    force_min_conf: float = 0.35,
+) -> tuple[str, int]:
     cls = canonical_class(object_class)
-    if conf < min_conf:
+    need = max(float(min_conf), float(force_min_conf))
+    if conf < need:
         cls = "unknown"
     limits = force_cfg or {}
     value = int(limits.get(cls, limits.get("unknown", 650)))

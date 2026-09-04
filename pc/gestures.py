@@ -23,6 +23,7 @@ class Hands:
         open_name: str = "Open_Palm",
         close_name: str = "Closed_Fist",
         min_streak: int = 3,
+        sticky_ms: int = 250,
     ):
         import mediapipe as mp
         from mediapipe.tasks.python.core import base_options as bo
@@ -31,9 +32,12 @@ class Hands:
         self.open_name = open_name
         self.close_name = close_name
         self.min_streak = int(min_streak)
+        self.sticky_ms = int(sticky_ms)
         self._streak_name: Optional[str] = None
         self._streak = 0
         self._ts = 0
+        self._sticky_intent: Optional[str] = None
+        self._sticky_until = 0
         self._mp = mp
 
         try:
@@ -49,7 +53,7 @@ class Hands:
                 num_hands=1,
                 canned_gesture_classifier_options=canned,
             )
-        except TypeError:
+        except (TypeError, ImportError, AttributeError):
             options = gr.GestureRecognizerOptions(
                 base_options=bo.BaseOptions(model_asset_path=str(model_path)),
                 running_mode=gr.RunningMode.VIDEO,
@@ -68,7 +72,7 @@ class Hands:
             timestamp_ms = self._ts
         result = self._recognizer.recognize_for_video(image, timestamp_ms)
         name, score = "", 0.0
-        if result.gestures:
+        if result.gestures and result.gestures[0]:
             cat = result.gestures[0][0]
             name, score = cat.category_name, float(cat.score)
         if name in (self.open_name, self.close_name):
@@ -85,6 +89,13 @@ class Hands:
             intent = "open"
         elif self._streak >= self.min_streak and self._streak_name == self.close_name:
             intent = "close"
+        if intent:
+            self._sticky_intent = intent
+            self._sticky_until = timestamp_ms + self.sticky_ms
+        elif self._sticky_intent and timestamp_ms <= self._sticky_until:
+            intent = self._sticky_intent
+        else:
+            self._sticky_intent = None
         return Gesture(name=name, score=score, intent=intent)
 
     def close(self) -> None:

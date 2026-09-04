@@ -1,41 +1,55 @@
 /*
-  QS Force-sensitive gripper — ESP32 DevKit V1 (PlatformIO)
-  Safety stop lives HERE, not on the laptop.
+  QS Force-sensitive gripper — ESP32 DevKit V1
+  AX-12A on Serial2. Laptop commands on USB Serial and Bluetooth SPP.
 
-  Do NOT use GPIO 1 / 3 (USB Serial) or 6–11 (flash).
-  FSR must be ADC1 input-only: 32, 33, 34, 35, 36, 39.
-  DIR must be an output pin: 4, 5, 18, 19, 21, 22, 23.
+  BT name: GRIPPER_TEST  (same as bluetooth_test.ino)
+  USB 115200 still works without pairing.
 
-  Line protocol (115200 8N1, newline):
-    PC → OPEN | CLOSE <fsr_max> | STOP | PING
-    ESP → FSR <adc> <STATE> | ACK ... | PONG | ERR ...
-
-  STATE: IDLE OPENING CLOSING HOLDING LIMIT FAULT
+  Pins (Yara fsr_test / dynamixel_move):
+    FSR        GPIO 34   3.3V → FSR → GPIO34 → 47k → GND
+    Direction  GPIO 21
+    Serial2 TX GPIO 17
+    Serial2 RX GPIO 16
 */
 
 #include <Arduino.h>
+#include <AX12A.h>
+#include <BluetoothSerial.h>
 
-#define FSR_PIN         34
-#define DXL_DIR_PIN     4
-#define DXL_BAUD        1000000
-#define DXL_ID          1
-#define POS_OPEN        200
-#define POS_CLOSE       820
-#define MOVE_SPEED      80
-#define FSR_DEFAULT_MAX 800
-#define REPORT_MS       40
-#define USE_DYNAMIXEL   0
-
-#if USE_DYNAMIXEL
-#include <DynamixelSerial.h>
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled in this ESP32 core
 #endif
+
+#define BT_NAME          "GRIPPER_TEST"
+#define FSR_PIN          34
+#define DXL_DIR_PIN      21
+#define DXL_BAUD         1000000ul
+#define DXL_ID           1
+#define POS_OPEN         0
+#define POS_CLOSE        131
+#define MOVE_SPEED       400
+#define HOLD_SPEED       80
+#define FSR_DEFAULT_MAX  650
+#define REPORT_MS        40
+#define OPEN_MS          400
+#define CLOSE_TIMEOUT_MS 4000
+#define FSR_HITS         2
+#define LINE_MAX         64
+
+BluetoothSerial SerialBT;
 
 enum State { ST_IDLE, ST_OPENING, ST_CLOSING, ST_HOLDING, ST_LIMIT, ST_FAULT };
 
 State state = ST_IDLE;
 int fsrMax = FSR_DEFAULT_MAX;
 int lastFsr = 0;
+uint8_t overHits = 0;
 uint32_t lastReport = 0;
+uint32_t moveStarted = 0;
+char usbBuf[LINE_MAX];
+uint8_t usbLen = 0;
+char btBuf[LINE_MAX];
+uint8_t btLen = 0;
 
 const char* stateName(State s) {
   switch (s) {
@@ -48,63 +62,73 @@ const char* stateName(State s) {
   }
 }
 
+void reply(const String& line) {
+  Serial.println(line);
+  SerialBT.println(line);
+}
+
 int readFsr() {
   long acc = 0;
-  for (int i = 0; i < 4; i++) acc += analogRead(FSR_PIN);
-  return (int)(acc / 4);
+  for (int i = 0; i < 8; i++) {
+    acc += analogRead(FSR_PIN);
+    delayMicroseconds(200);
+  }
+  return (int)(acc / 8);
 }
 
 void motorMove(int pos) {
-#if USE_DYNAMIXEL
-  Dynamixel.moveSpeed(DXL_ID, pos, MOVE_SPEED);
-#else
-  (void)pos;
-#endif
+  ax12a.moveSpeed(DXL_ID, pos, MOVE_SPEED);
 }
 
 void motorHoldHere() {
-#if USE_DYNAMIXEL
-  int here = Dynamixel.readPosition(DXL_ID);
-  if (here < 0) here = (POS_OPEN + POS_CLOSE) / 2;
-  Dynamixel.moveSpeed(DXL_ID, here, 0);
-#endif
+  int here = ax12a.readPosition(DXL_ID);
+  if (here < 0) {
+    ax12a.moveSpeed(DXL_ID, POS_OPEN, MOVE_SPEED);
+    state = ST_FAULT;
+    return;
+  }
+  ax12a.moveSpeed(DXL_ID, here, HOLD_SPEED);
 }
 
 void doOpen() {
   state = ST_OPENING;
   fsrMax = FSR_DEFAULT_MAX;
+  overHits = 0;
+  moveStarted = millis();
   motorMove(POS_OPEN);
-  Serial.println("ACK OPEN");
+  reply("ACK OPEN");
 }
 
 void doClose(int maxAdc) {
   fsrMax = constrain(maxAdc, 50, 4095);
   lastFsr = readFsr();
+  overHits = 0;
+  moveStarted = millis();
   if (lastFsr >= fsrMax) {
     motorHoldHere();
-    state = ST_LIMIT;
-    Serial.print("ACK CLOSE ");
-    Serial.println(fsrMax);
+    if (state != ST_FAULT) state = ST_LIMIT;
+    reply(String("ACK CLOSE ") + fsrMax);
     return;
   }
   state = ST_CLOSING;
   motorMove(POS_CLOSE);
-  Serial.print("ACK CLOSE ");
-  Serial.println(fsrMax);
+  reply(String("ACK CLOSE ") + fsrMax);
 }
 
 void doStop() {
   motorHoldHere();
-  state = ST_IDLE;
-  Serial.println("ACK STOP");
+  if (state != ST_FAULT) state = ST_IDLE;
+  overHits = 0;
+  reply("ACK STOP");
 }
 
-void handleLine(String line) {
+void handleLine(const char* raw) {
+  String line = String(raw);
   line.trim();
   if (line.length() == 0) return;
   line.toUpperCase();
   if (line == "PING") {
-    Serial.println("PONG");
+    reply("PONG");
     return;
   }
   if (line == "OPEN") {
@@ -117,55 +141,87 @@ void handleLine(String line) {
   }
   if (line.startsWith("CLOSE")) {
     int sp = line.indexOf(' ');
-    int mx = FSR_DEFAULT_MAX;
-    if (sp > 0) mx = line.substring(sp + 1).toInt();
+    if (sp < 0) {
+      reply("ERR CLOSE needs adc");
+      return;
+    }
+    int mx = line.substring(sp + 1).toInt();
+    if (mx < 50) {
+      reply("ERR CLOSE adc");
+      return;
+    }
     doClose(mx);
     return;
   }
-  Serial.print("ERR unknown ");
-  Serial.println(line);
+  reply(String("ERR unknown ") + line);
+}
+
+void feed(char c, char* buf, uint8_t* len) {
+  if (c == '\r') return;
+  if (c == '\n') {
+    buf[*len] = 0;
+    *len = 0;
+    handleLine(buf);
+    return;
+  }
+  if (*len < LINE_MAX - 1) buf[(*len)++] = c;
+  else *len = 0;
+}
+
+void pollLinks() {
+  while (Serial.available()) feed((char)Serial.read(), usbBuf, &usbLen);
+  while (SerialBT.available()) feed((char)SerialBT.read(), btBuf, &btLen);
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(30);
   pinMode(FSR_PIN, INPUT);
-#if USE_DYNAMIXEL
-  Dynamixel.begin(DXL_BAUD, DXL_DIR_PIN);
+#if defined(ADC_11db)
+  analogSetPinAttenuation(FSR_PIN, ADC_11db);
 #endif
-  delay(200);
-  Serial.println("PONG");
-  Serial.println("FSR 0 IDLE");
+#if defined(ESP32)
+  analogReadResolution(12);
+#endif
+  SerialBT.begin(BT_NAME);
+  delay(1000);
+  ax12a.begin(DXL_BAUD, DXL_DIR_PIN, &Serial2);
+  ax12a.setEndless(DXL_ID, OFF);
+  reply("PONG");
+  reply("FSR 0 IDLE");
 }
 
 void loop() {
-  while (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    handleLine(line);
-  }
-
   lastFsr = readFsr();
 
-  if (state == ST_CLOSING && lastFsr >= fsrMax) {
-    motorHoldHere();
-    state = ST_LIMIT;
+  if (state == ST_CLOSING) {
+    if (lastFsr >= fsrMax) overHits++;
+    else if (overHits > 0) overHits--;
+    if (overHits >= FSR_HITS) {
+      motorHoldHere();
+      if (state != ST_FAULT) state = ST_LIMIT;
+    }
+    int pos = ax12a.readPosition(DXL_ID);
+    if (state == ST_CLOSING && pos >= 0 && abs(pos - POS_CLOSE) < 8) {
+      motorHoldHere();
+      if (state != ST_FAULT) state = ST_HOLDING;
+    }
+    if (state == ST_CLOSING && (millis() - moveStarted) > CLOSE_TIMEOUT_MS) {
+      motorHoldHere();
+      if (state != ST_FAULT) state = (overHits > 0) ? ST_LIMIT : ST_HOLDING;
+    }
   }
 
   if (state == ST_OPENING) {
-#if USE_DYNAMIXEL
-    int pos = Dynamixel.readPosition(DXL_ID);
-    if (pos >= 0 && abs(pos - POS_OPEN) < 15) state = ST_IDLE;
-#else
-    state = ST_IDLE;
-#endif
+    int pos = ax12a.readPosition(DXL_ID);
+    if (pos >= 0 && abs(pos - POS_OPEN) < 8) state = ST_IDLE;
+    else if ((millis() - moveStarted) > OPEN_MS) state = ST_IDLE;
   }
+
+  pollLinks();
 
   uint32_t now = millis();
   if (now - lastReport >= REPORT_MS) {
     lastReport = now;
-    Serial.print("FSR ");
-    Serial.print(lastFsr);
-    Serial.print(' ');
-    Serial.println(stateName(state));
+    reply(String("FSR ") + lastFsr + " " + stateName(state));
   }
 }

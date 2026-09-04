@@ -63,6 +63,6 @@ def draw(
     if fill > 0:
         cv2.rectangle(vis, (bar_x + 1, bar_y + 1), (bar_x + 1 + fill, bar_y + bar_h - 1), col, -1)
     y = bar_y + 48
-    hint = "palm=OPEN  fist=CLOSE  o/c keys  q=quit"
+    hint = "palm=OPEN  fist=CLOSE  o/c  space=STOP  q"
     cv2.putText(vis, hint, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 180, 180), 1)
     return vis

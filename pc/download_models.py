@@ -30,8 +30,9 @@ def main() -> None:
     fetch(GESTURE_URL, MODELS / "gesture_recognizer.task")
     print(
         "YOLOE weights: first `python pc/02_yolo_test.py` downloads "
-        "yoloe-26n-seg.pt + mobileclip2_b.ts into the working directory / models/.\n"
-        "If the starter USB stick has those files, copy them into models/."
+        "yoloe-26n-seg.pt + mobileclip2_b.ts into models/.\n"
+        "If the starter USB stick has those files, copy them into models/ "
+        "and run from the repo root."
     )
     return 0
 

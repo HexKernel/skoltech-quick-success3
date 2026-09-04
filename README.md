@@ -41,22 +41,83 @@ python pc/03_yolo_gesture_sequence.py
 python pc/main.py
 ```
 
+Клавиша **пробел = STOP** и держится, пока кулак не отпущен. Порог силы
+защёлкивается на весь захват: яйцо не станет камнем посередине.
+
 Пока платы нет: `serial.mock: true` в `pc/config.yaml`.
 
-## Плата (PlatformIO)
+## Плата
+
+Плата: **DOIT ESP32 DEVKIT V1**. USB от ПК питает ESP32. **12 V только на мотор.**
+Bluetooth не обязателен: USB serial работает сразу. Если зрение уже крутится,
+можно спарить Classic SPP **GRIPPER_TEST** (как в `test/sketches/bluetooth_test.ino`)
+и слать те же строки `OPEN` / `CLOSE 700` / `STOP`. Прошивка слушает USB и BT сразу.
+
+| Сигнал | GPIO | Куда |
+|---|---|---|
+| FSR ADC | **34** | 3.3V → FSR → GPIO34 → **47k** → GND (`fsr_test.ino`) |
+| Dynamixel DIR | **21** | buffer DP, как в `dynamixel_move.ino` |
+| Serial2 TX | **17** | buffer TX |
+| Serial2 RX | **16** | buffer RX (дефолт Serial2) |
+| Open / Close | **0 / 131** | как в стартовом скетче Яры |
+| Speed | **400** | `moveSpeed` |
+
+Библиотека мотора лежит в `lib/AX12A` (официальный `AX-12A-servo-library-master.zip`). Это **не** DynamixelSerial.
+
+Прошивка интеграции: `src/main.cpp` (протокол `OPEN` / `CLOSE <adc>` / `STOP`).  
+Проверка мотора без зрения: `test/sketches/dynamixel_move.ino`.  
+Проверка FSR: `test/sketches/fsr_test.ino` (GPIO **34**). Порог в `fsr_motor_stop_test.ino` (`2000`) — заглушка, подставь число с монитора.
+
+**12 V — после проверки схемы у Яры / организаторов.**
+
+Ноутбук: `serial.mock: false`. Калибровка ADC: `python pc/calibrate_fsr.py`.
+
+### Arduino IDE 2 (Linux)
+
+1. Download **Arduino IDE 2 AppImage (Linux 64-bit)** from  
+   https://www.arduino.cc/en/software  
+   → “Linux AppImage 64 bits (X86-64)” → “Just Download”.
+
+2. Install `libfuse2` if needed:
+
+```bash
+sudo apt update
+sudo apt install libfuse2
+```
+
+3. Run:
+
+```bash
+cd ~/Downloads
+chmod +x arduino-ide_*.AppImage
+./arduino-ide_*.AppImage
+```
+
+(or double-click the AppImage after `chmod +x`).
+
+Board manager (Windows / Mac / Linux) — follow  
+[Installing the ESP32 Board in Arduino IDE](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/):
+
+1. **File → Preferences → Additional Board Manager URLs**, paste:
+
+```
+https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+```
+
+2. **Tools → Board → Boards Manager…** → search **ESP32** → install **ESP32 by Espressif Systems**.
+   Workshop slides ask for core **1.0.6** if that version is listed; otherwise install what Boards Manager offers and tell us the version.
+3. **Tools → Board** → **DOIT ESP32 DEVKIT V1**. Upload speed 115200. USB: pick the CP2102/`COM`/`ttyUSB` port.
+
+Then: **Sketch → Include Library → Add .ZIP Library** → `AX-12A-servo-library-master.zip` (or copy `lib/AX12A` into Arduino `libraries`).
+
+Bring-up sketches: `test/sketches/dynamixel_move.ino`, `fsr_test.ino`, `fsr_motor_stop_test.ino`.
+
+### PlatformIO (optional)
 
 ```bash
 pio run -t upload
 pio device monitor
 ```
-
-Плата: **DOIT ESP32 DEVKIT V1**. Пины в `src/main.cpp`: FSR GPIO 34, Dynamixel DIR GPIO 4
-(не GPIO 1 — это USB TX). `USE_DYNAMIXEL 0` пока нет `DynamixelSerial.zip`.
-
-**12 V к Dynamixel — только после проверки организаторами.**
-
-На ноутбуке: `serial.mock: false`, порт `auto` или `/dev/cu.SLAB_USBtoUART` / `COM3`.
-Калибровка: `python pc/calibrate_fsr.py`.
 
 ## Протокол USB 115200
 

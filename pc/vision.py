@@ -1,6 +1,7 @@
 """YOLOE open-vocabulary detector (egg / sponge / stone)."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,17 @@ class Detection:
     xyxy: tuple[float, float, float, float]
 
 
+def _box_name(names, cls_id: int) -> str:
+    if names is None:
+        return str(cls_id)
+    if isinstance(names, dict):
+        return str(names.get(cls_id, cls_id))
+    try:
+        return str(names[cls_id])
+    except Exception:
+        return str(cls_id)
+
+
 class Sight:
     def __init__(self, model_path: Path, classes: list[str], imgsz: int = 320, conf: float = 0.20, device: str = "cpu"):
         from ultralytics import YOLOE
@@ -23,11 +35,25 @@ class Sight:
         self.imgsz = int(imgsz)
         self.conf = float(conf)
         self.device = device
-        self.model = YOLOE(str(model_path))
+        src = Path(model_path)
+        work = src.parent if src.suffix else Path.cwd()
+        work.mkdir(parents=True, exist_ok=True)
+        prev = os.getcwd()
         try:
-            self.model.set_classes(self.classes)
-        except TypeError:
-            self.model.set_classes(self.classes, self.model.get_text_pe(self.classes))
+            os.chdir(work)
+            load = src.name if src.suffix else str(src)
+            self.model = YOLOE(load)
+            if hasattr(self.model, "eval"):
+                try:
+                    self.model.eval()
+                except Exception:
+                    pass
+            try:
+                self.model.set_classes(self.classes)
+            except TypeError:
+                self.model.set_classes(self.classes, self.model.get_text_pe(self.classes))
+        finally:
+            os.chdir(prev)
 
     def infer(self, frame_bgr: np.ndarray) -> list[Detection]:
         results = self.model.predict(
@@ -46,10 +72,9 @@ class Sight:
         names = r.names
         for box in r.boxes:
             cls_id = int(box.cls[0])
-            name = str(names.get(cls_id, cls_id))
             conf = float(box.conf[0])
             x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
-            out.append(Detection(name=name, conf=conf, xyxy=(x1, y1, x2, y2)))
+            out.append(Detection(name=_box_name(names, cls_id), conf=conf, xyxy=(x1, y1, x2, y2)))
         out.sort(key=lambda d: d.conf, reverse=True)
         return out
 

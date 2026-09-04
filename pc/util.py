@@ -27,6 +27,13 @@ def open_camera(cfg: dict):
     cam = cfg.get("camera", {})
     idx = int(cam.get("index", 0))
     backend = str(cam.get("backend", "auto")).lower()
+    if backend == "auto":
+        import sys
+
+        if sys.platform == "darwin":
+            backend = "avfoundation"
+        elif sys.platform.startswith("win"):
+            backend = "dshow"
     if backend == "dshow":
         cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
     elif backend == "avfoundation":

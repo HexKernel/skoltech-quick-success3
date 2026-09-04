@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from force_policy import canonical_class, fsr_limit
+from force_policy import RANK, canonical_class, fsr_limit
 from util import load_config
 
 
@@ -24,6 +24,11 @@ def main() -> int:
         "unknown",
         int(force["unknown"]),
     )
+    assert fsr_limit("stone", force, conf=0.22, min_conf=0.20, force_min_conf=0.35) == (
+        "unknown",
+        int(force["unknown"]),
+    )
+    assert RANK["egg"] < RANK["stone"]
     assert cfg["serial"]["baud"] == 115200
     print("selftest ok")
     print(f"  mock={cfg['serial']['mock']}  port={cfg['serial']['port']}")

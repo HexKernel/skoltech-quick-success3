@@ -45,7 +45,13 @@ def main() -> None:
             break
         det = sight.best(frame)
         g = hands.infer(frame, timestamp_ms=int((time.time() - t0) * 1000))
-        cls, limit = fsr_limit(det.name if det else None, cfg["force"], det.conf if det else 0.0)
+        cls, limit = fsr_limit(
+            det.name if det else None,
+            cfg["force"],
+            det.conf if det else 0.0,
+            min_conf=float(m.get("yolo_conf", 0.20)),
+            force_min_conf=float(m.get("force_min_conf", 0.35)),
+        )
         vis = draw(frame, det, g.name, g.intent, cls, limit, dummy)
         cv2.imshow("YOLOE + gestures", vis)
         if (cv2.waitKey(1) & 0xFF) in (ord("q"), ord("Q")):
